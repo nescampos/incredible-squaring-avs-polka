@@ -5,6 +5,11 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"encoding/json"
+    "io/ioutil"
+    "net/http"
+    "strconv"
+    "log"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -306,6 +311,46 @@ func (o *Operator) Start(ctx context.Context) error {
 	}
 }
 
+// ResponseBody defines the structure of the response
+type ResponseBody struct {
+    JSONRPC string `json:"jsonrpc"`
+    Result  Result `json:"result"`
+    ID      int    `json:"id"`
+    Error   *Error `json:"error,omitempty"`
+}
+
+// Result defines the structure of the result field in the response
+type Result struct {
+    Block Block `json:"block"`
+}
+
+// Block defines the structure of a block on the chain
+type Block struct {
+    Header      Header      `json:"header"`
+    Extrinsics  []string    `json:"extrinsics"`
+    Justifications []string `json:"justifications"`
+}
+
+// Header defines the header structure of a block
+type Header struct {
+    ParentHash     string   `json:"parentHash"`
+    Number         string   `json:"number"`
+    StateRoot      string   `json:"stateRoot"`
+    ExtrinsicsRoot string   `json:"extrinsicsRoot"`
+    Digest         Digest   `json:"digest"`
+}
+
+// Digest defines the digest structure in the block header
+type Digest struct {
+    Logs []string `json:"logs"`
+}
+
+// Error defines the structure of a possible error in the response
+type Error struct {
+    Code    int    `json:"code"`
+    Message string `json:"message"`
+}
+
 // Takes a NewTaskCreatedLog struct as input and returns a TaskResponseHeader struct.
 // The TaskResponseHeader struct is the struct that is signed and sent to the contract as a task response.
 func (o *Operator) ProcessNewTaskCreatedLog(newTaskCreatedLog *cstaskmanager.ContractIncredibleSquaringTaskManagerNewTaskCreated) *cstaskmanager.IIncredibleSquaringTaskManagerTaskResponse {
@@ -317,12 +362,84 @@ func (o *Operator) ProcessNewTaskCreatedLog(newTaskCreatedLog *cstaskmanager.Con
 		"quorumNumbers", newTaskCreatedLog.Task.QuorumNumbers,
 		"QuorumThresholdPercentage", newTaskCreatedLog.Task.QuorumThresholdPercentage,
 	)
+    
+    // Fetch the last digit of the block extrinsic for the given block height
+    lastDigitOfBlockExtrinsic := getLastDigitOfPolkadotBlockExtrinsic()
+	
 	numberSquared := big.NewInt(0).Exp(newTaskCreatedLog.Task.NumberToBeSquared, big.NewInt(2), nil)
+	randomNumber := 
 	taskResponse := &cstaskmanager.IIncredibleSquaringTaskManagerTaskResponse{
 		ReferenceTaskIndex: newTaskCreatedLog.TaskIndex,
 		NumberSquared:      numberSquared,
+        LastDigitOfBlockExtrinsic: lastDigitOfBlockExtrinsic, 
 	}
 	return taskResponse
+}
+
+// getLastDigitOfPolkadotBlockExtrinsic fetches the last digit of the header extrinsics for the last block using the Polkadot API (using Quicknode)
+func getLastDigitOfPolkadotBlockExtrinsic() int {
+    
+	url := "https://docs-demo.dot-mainnet.quiknode.pro/"
+	method := "POST"
+
+	// Request data
+	payload := map[string]interface{}{
+		"method": "chain_getBlock",
+		"params": []interface{}{},
+		"id":     1,
+		"jsonrpc": "2.0",
+	}
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		log.Fatalf("Error encoding payload: %s", err)
+	}
+
+	// Create the HTTP request
+	client := &http.Client{}
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		log.Fatalf("Error creating HTTP request: %s", err)
+	}
+
+	// Set the header
+	req.Header.Add("Content-Type", "application/json")
+
+	// MAke the request
+	res, err := client.Do(req)
+	if err != nil {
+		log.Fatalf("Error when making the request: %s", err)
+	}
+	defer res.Body.Close()
+
+	// Read the response
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		log.Fatalf("Error reading response: %s", err)
+	}
+
+	// Verify the HTTP status code
+	if res.StatusCode != http.StatusOK {
+		log.Fatalf("Request failed with status code: %d and body: %s", res.StatusCode, string(body))
+	}
+
+	var resBody ResponseBody
+    err = json.Unmarshal(body, &resBody)
+    if err != nil {
+        log.Fatalf("Error deserializing JSON response: %v", err)
+    }
+
+    // Format and display the result
+    formattedResponse, err := json.MarshalIndent(resBody, "", "  ")
+    if err != nil {
+        log.Fatalf("Error formatting JSON response: %v", err)
+    }
+
+	// Extract the last hex digit of the block hash (will be values from 0 to 15)
+	lastDigit, err := strconv.ParseInt(string([]byte(block.Header.ExtrinsicsRoot)[len(block.Header.ExtrinsicsRoot)-1]), 16, 8)
+	if err!= nil {
+		log.Fatalf("Error parsing last digit of block hash: %v", err)
+	}
+	return int(lastDigit)
 }
 
 func (o *Operator) SignTaskResponse(taskResponse *cstaskmanager.IIncredibleSquaringTaskManagerTaskResponse) (*aggregator.SignedTaskResponse, error) {
