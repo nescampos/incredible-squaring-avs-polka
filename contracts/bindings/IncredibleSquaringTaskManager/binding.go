@@ -71,6 +71,7 @@ type IIncredibleSquaringTaskManagerTask struct {
 type IIncredibleSquaringTaskManagerTaskResponse struct {
 	ReferenceTaskIndex uint32
 	NumberSquared      *big.Int
+	LastDigitOfBlockExtrinsic int
 }
 
 // IIncredibleSquaringTaskManagerTaskResponseMetadata is an auto generated low-level Go binding around an user-defined struct.
